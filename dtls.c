@@ -56,6 +56,10 @@
 #include "dtls_prng.h"
 #include "dtls_mutex.h"
 
+#ifdef WITH_NANOANQ
+#include "FreeRTOS.h"
+#endif
+
 #ifdef WITH_SHA256
 #  include "hmac.h"
 #endif /* WITH_SHA256 */
@@ -185,6 +189,22 @@ static const unsigned char cert_asn1_header[] = {
 };
 #endif /* DTLS_ECC */
 
+#ifdef WITH_NANOANQ
+
+static inline dtls_context_t *malloc_context(void)
+{
+    dtls_info("%s %u\n", __func__, sizeof(dtls_context_t));
+  return (dtls_context_t *)pvPortMalloc(sizeof(dtls_context_t));
+}
+
+static inline void free_context(dtls_context_t *context)
+{
+    dtls_info("%s\n", __func__);
+  vPortFree(context);
+}
+
+#endif /* WITH_NANOANQ */
+
 #ifdef WITH_CONTIKI
 
 PROCESS(dtls_retransmit_process, "DTLS retransmit process");
@@ -227,12 +247,24 @@ free_context(dtls_context_t *context) {
 
 #endif /* WITH_POSIX */
 
+#ifdef DTLS_CONSTRAINED_STACK
+#ifdef WITH_NANOANQ
+static dtls_mutex_t static_mutex;
+#endif
+#endif /* DTLS_CONSTRAINED_STACK */
+
 void
 dtls_init(void) {
   dtls_clock_init();
   crypto_init();
   netq_init();
   peer_init();
+
+#ifdef DTLS_CONSTRAINED_STACK
+#ifdef WITH_NANOANQ
+    static_mutex = xSemaphoreCreateMutex();
+#endif
+#endif /* DTLS_CONSTRAINED_STACK */
 
 #ifdef RIOT_VERSION
 memarray_init(&dtlscontext_storage, dtlscontext_storage_data,
@@ -1711,7 +1743,9 @@ dtls_send_handshake_msg(dtls_context_t *ctx,
 
 
 #ifdef DTLS_CONSTRAINED_STACK
+#ifndef WITH_NANOANQ
 static dtls_mutex_t static_mutex = DTLS_MUTEX_INITIALIZER;
+#endif
 static unsigned char sendbuf[DTLS_MAX_BUF];
 #endif /* DTLS_CONSTRAINED_STACK */
 
@@ -2052,11 +2086,11 @@ dtls_asn1_integer_to_ec_key(uint8 *data, size_t data_len, uint8 *key,
   if (length < key_len) {
     /* pad with leading 0s */
     memset(key, 0, key_len - length);
-    memcpy(key + key_len - length, data, length); 
+    memcpy(key + key_len - length, data, length);
   }
   else {
     /* drop leading 0s if needed */
-    memcpy(key, data + length - key_len, key_len); 
+    memcpy(key, data + length - key_len, key_len);
   }
   return length + 2;
 }
@@ -3297,7 +3331,7 @@ check_certificate_request(dtls_context_t *ctx,
     dtls_alert("illegal certificate request\n");
     return dtls_alert_fatal_create(DTLS_ALERT_HANDSHAKE_FAILURE);
   }
-  
+
   for (; i >= sizeof(uint16); i -= sizeof(uint16)) {
     int current_hash_alg;
     int current_sig_alg;
@@ -4334,12 +4368,22 @@ dtls_handle_message(dtls_context_t *ctx,
     uint64_t pkt_seq_nr = dtls_uint48_to_int(header->sequence_number);
 
     if (content_type_name) {
+#ifdef WITH_NANOANQ
+      dtls_info("got '%s' epoch %u sequence %08lX%08lX (%d bytes)\n",
+                 content_type_name, epoch, (uint32_t)(pkt_seq_nr >> 32), (uint32_t)pkt_seq_nr, rlen);
+#else
       dtls_info("got '%s' epoch %u sequence %" PRIu64 " (%d bytes)\n",
                  content_type_name, epoch, pkt_seq_nr, rlen);
+#endif
     }
     else {
+#ifdef WITH_NANOANQ
+      dtls_info("got 'unknown %u' epoch %u sequence %08lX%08lX (%d bytes)\n",
+                 content_type, epoch, (uint32_t)(pkt_seq_nr >> 32), (uint32_t)pkt_seq_nr, rlen);
+#else
       dtls_info("got 'unknown %u' epoch %u sequence %" PRIu64 " (%d bytes)\n",
                  content_type, epoch, pkt_seq_nr, rlen);
+#endif
     }
 
     dtls_security_parameters_t *security = dtls_security_params_read_epoch(peer, epoch);
@@ -4351,21 +4395,39 @@ dtls_handle_message(dtls_context_t *ctx,
       }
       data_length = -1;
     } else {
+#ifdef WITH_NANOANQ
+      dtls_debug("bitfield is %08lX%08lX sequence base %08lX%08lX rseqn %08lX%08lX\n",
+                  (uint32_t)(security->cseq.bitfield >> 32), (uint32_t)security->cseq.bitfield,
+                  (uint32_t)(security->cseq.cseq >> 32), (uint32_t)security->cseq.cseq,
+                  (uint32_t)(pkt_seq_nr >> 32), (uint32_t)pkt_seq_nr);
+#else
       dtls_debug("bitfield is %" PRIx64 " sequence base %" PRIx64 " rseqn %" PRIx64 "\n",
                   security->cseq.bitfield, security->cseq.cseq, pkt_seq_nr);
+#endif
       if (security->cseq.bitfield == 0) { /* first message of epoch */
         data_length = decrypt_verify(peer, msg, rlen, &data);
         if(data_length > 0) {
             security->cseq.cseq = pkt_seq_nr;
             security->cseq.bitfield = 1;
+#ifdef WITH_NANOANQ
+            dtls_debug("init bitfield is %08lX%08lX sequence base %08lX%08lX\n",
+                        (uint32_t)(security->cseq.bitfield >> 32), (uint32_t)security->cseq.bitfield,
+                        (uint32_t)(security->cseq.cseq >> 32), (uint32_t)security->cseq.cseq);
+#else
             dtls_debug("init bitfield is %" PRIx64 " sequence base %" PRIx64 "\n",
                         security->cseq.bitfield, security->cseq.cseq);
+#endif
         }
       } else {
         int64_t seqn_diff = (int64_t)(pkt_seq_nr - security->cseq.cseq);
         if(seqn_diff == 0) {
           /* already seen */
+#ifdef WITH_NANOANQ
+          dtls_debug("Drop: duplicate packet arrived (cseq=%08lX%08lX bitfield's start)\n",
+                  (uint32_t)(pkt_seq_nr >> 32), (uint32_t)pkt_seq_nr);
+#else
           dtls_debug("Drop: duplicate packet arrived (cseq=%" PRIu64 " bitfield's start)\n", pkt_seq_nr);
+#endif
           return 0;
         } else if (seqn_diff < 0) { /* older pkt_seq_nr < security->cseq.cseq */
           if (seqn_diff < -63) { /* too old */
@@ -4381,8 +4443,14 @@ dtls_handle_message(dtls_context_t *ctx,
           data_length = decrypt_verify(peer, msg, rlen, &data);
           if(data_length > 0) {
             security->cseq.bitfield |= seqn_bit;
+#ifdef WITH_NANOANQ
+            dtls_debug("update bitfield is %08lX%08lX keep sequence base %08lX%08lX\n",
+                        (uint32_t)(security->cseq.bitfield >> 32), (uint32_t)security->cseq.bitfield,
+                        (uint32_t)(security->cseq.cseq >> 32), (uint32_t)security->cseq.cseq);
+#else
             dtls_debug("update bitfield is %" PRIx64 " keep sequence base %" PRIx64 "\n",
                         security->cseq.bitfield, security->cseq.cseq);
+#endif
           }
         } else { /* newer pkt_seq_nr > security->cseq.cseq */
           data_length = decrypt_verify(peer, msg, rlen, &data);
@@ -4397,8 +4465,14 @@ dtls_handle_message(dtls_context_t *ctx,
               security->cseq.bitfield <<= seqn_diff;
               security->cseq.bitfield |= 1;
             }
+#ifdef WITH_NANOANQ
+            dtls_debug("update bitfield is %08lX%08lX new sequence base %08lX%08lX\n",
+                        (uint32_t)(security->cseq.bitfield >> 32), (uint32_t)security->cseq.bitfield,
+                        (uint32_t)(security->cseq.cseq >> 32), (uint32_t)security->cseq.cseq);
+#else
             dtls_debug("update bitfield is %" PRIx64 " new sequence base %" PRIx64 "\n",
                         security->cseq.bitfield, security->cseq.cseq);
+#endif
           }
         }
       }
@@ -4610,8 +4684,9 @@ dtls_connect(dtls_context_t *ctx, const session_t *dst) {
 
   peer = dtls_get_peer(ctx, dst);
 
-  if (!peer)
+  if (!peer) {
     peer = dtls_new_peer(dst);
+  }
 
   if (!peer) {
     dtls_crit("cannot create new peer\n");

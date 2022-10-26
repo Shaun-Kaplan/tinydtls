@@ -6,7 +6,7 @@
  * and Eclipse Distribution License v. 1.0 which accompanies this distribution.
  *
  * The Eclipse Public License is available at http://www.eclipse.org/legal/epl-v10.html
- * and the Eclipse Distribution License is available at 
+ * and the Eclipse Distribution License is available at
  * http://www.eclipse.org/org/documents/edl-v10.php.
  *
  * Contributors:
@@ -52,8 +52,18 @@ typedef int dtls_mutex_t;
 #define dtls_mutex_trylock(a) *(a) = 1
 #define dtls_mutex_unlock(a) *(a) = 0
 
+#elif defined(WITH_NANOANQ)
 
-#else /* ! RIOT_VERSION && ! WITH_CONTIKI && ! WITH_ZEPHYR */
+/* Locking */
+#include "FreeRTOS.h"
+
+typedef xSemaphoreHandle dtls_mutex_t;
+#define DTLS_MUTEX_INITIALIZER 0
+#define dtls_mutex_lock(a) xSemaphoreTake(*(a), portMAX_DELAY)
+#define dtls_mutex_trylock(a) xSemaphoreTake(*(a), 0)
+#define dtls_mutex_unlock(a) xSemaphoreGive(*(a))
+
+#else /* ! RIOT_VERSION && ! WITH_CONTIKI && ! WITH_ZEPHYR && ! WITH_NANOANQ */
 
 #include <pthread.h>
 

@@ -6,7 +6,7 @@
  * and Eclipse Distribution License v. 1.0 which accompanies this distribution.
  *
  * The Eclipse Public License is available at http://www.eclipse.org/legal/epl-v10.html
- * and the Eclipse Distribution License is available at 
+ * and the Eclipse Distribution License is available at
  * http://www.eclipse.org/org/documents/edl-v10.php.
  *
  * Contributors:
@@ -32,7 +32,7 @@
 LOG_MODULE_DECLARE(TINYDTLS, CONFIG_TINYDTLS_LOG_LEVEL);
 #endif /* WITH_ZEPHYR */
 
-#if !(defined (WITH_CONTIKI)) && !(defined (RIOT_VERSION))
+#if !(defined (WITH_CONTIKI)) && !(defined (RIOT_VERSION)) && !(defined (WITH_NANOANQ))
 #include <stdlib.h>
 
 static inline netq_t *
@@ -87,9 +87,28 @@ netq_init(void) {
   memarray_init(&netq_storage, netq_storage_data, sizeof(netq_t), NETQ_MAXCNT);
 }
 
+#elif defined (WITH_NANOANQ)
+#include "FreeRTOS.h"
+
+static inline netq_t *
+netq_malloc_node(size_t size) {
+    dtls_info("%s %u\n", __func__, (sizeof(netq_t) + size));
+  return (netq_t *)pvPortMalloc(sizeof(netq_t) + size);
+}
+
+static inline void
+netq_free_node(netq_t *node) {
+    dtls_info("%s\n", __func__);
+  vPortFree(node);
+}
+
+void
+netq_init(void) {
+}
+
 #endif /* WITH_CONTIKI */
 
-int 
+int
 netq_insert_node(netq_t **queue, netq_t *node) {
   netq_t *p;
 
@@ -136,10 +155,10 @@ netq_remove(netq_t **queue, netq_t *p) {
 
 netq_t *netq_pop_first(netq_t **queue) {
   netq_t *p = netq_head(queue);
-  
+
   if (p)
     LL_DELETE(*queue, p);
-  
+
   return p;
 }
 
@@ -157,13 +176,13 @@ netq_node_new(size_t size) {
   return node;
 }
 
-void 
+void
 netq_node_free(netq_t *node) {
   if (node)
     netq_free_node(node);
 }
 
-void 
+void
 netq_delete_all(netq_t **queue) {
   netq_t *p, *tmp;
   if (queue) {

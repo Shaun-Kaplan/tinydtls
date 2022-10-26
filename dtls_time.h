@@ -6,7 +6,7 @@
  * and Eclipse Distribution License v. 1.0 which accompanies this distribution.
  *
  * The Eclipse Public License is available at http://www.eclipse.org/legal/epl-v10.html
- * and the Eclipse Distribution License is available at 
+ * and the Eclipse Distribution License is available at
  * http://www.eclipse.org/org/documents/edl-v10.php.
  *
  * Contributors:
@@ -63,7 +63,18 @@ typedef uint32_t clock_time_t;
 
 typedef int64_t clock_time_t;
 
-#else /* WITH_CONTIKI || RIOT_VERSION */
+#elif defined(WITH_NANOANQ)
+
+#include "rtc.h"
+
+#define time(x) RTC_Uptime()
+#ifndef CLOCK_SECOND
+# define CLOCK_SECOND 32767
+#endif
+
+typedef uint64_t clock_time_t;
+
+#else /* WITH_CONTIKI || RIOT_VERSION || WITH_ZEPHIR || WITH_NANOANQ */
 
 #ifdef HAVE_TIME_H
 #include <time.h>

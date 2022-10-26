@@ -40,6 +40,7 @@ typedef int in_port_t;
 #endif /* WITH_ZEPHYR */
 
 #include "global.h"
+#include "dtls_time.h"
 #include "dtls_debug.h"
 
 #ifndef min
@@ -361,7 +362,11 @@ dtls_dsrv_hexdump_log(log_t level, const char *name, const unsigned char *buf, s
     fprintf(log_fd, "%s ", loglevels[level]);
 
   if (extend) {
+#ifdef WITH_NANOANQ
+    fprintf(log_fd, "%s: (%u bytes):\n", name, length);
+#else
     fprintf(log_fd, "%s: (%zu bytes):\n", name, length);
+#endif
 
     while (length--) {
       if (n % 16 == 0)
@@ -378,7 +383,11 @@ dtls_dsrv_hexdump_log(log_t level, const char *name, const unsigned char *buf, s
       }
     }
   } else {
+#ifdef WITH_NANOANQ
+    fprintf(log_fd, "%s: (%u bytes): ", name, length);
+#else
     fprintf(log_fd, "%s: (%zu bytes): ", name, length);
+#endif
     while (length--)
       fprintf(log_fd, "%02X", *buf++);
   }

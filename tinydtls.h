@@ -32,6 +32,11 @@
 #include "platform-specific/platform.h"
 #endif /* CONTIKI */
 
+#ifdef NANOANQ
+#include "platform-specific/nanoanq_platform.h"
+#endif /* NANOANQ */
+
+#ifndef NANOANQ
 #ifndef CONTIKI
 #ifndef RIOT_VERSION
 #ifndef WITH_POSIX
@@ -41,6 +46,7 @@
 #include "dtls_config.h"
 #endif /* RIOT_VERSION */
 #endif /* CONTIKI */
+#endif /* NANOANQ */
 
 #ifndef DTLS_ECC
 #ifndef DTLS_PSK
