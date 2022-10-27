@@ -6,7 +6,7 @@
  * and Eclipse Distribution License v. 1.0 which accompanies this distribution.
  *
  * The Eclipse Public License is available at http://www.eclipse.org/legal/epl-v10.html
- * and the Eclipse Distribution License is available at 
+ * and the Eclipse Distribution License is available at
  * http://www.eclipse.org/org/documents/edl-v10.php.
  *
  * Contributors:
@@ -49,25 +49,31 @@
      && (A)->addr.family == (B)->addr.family                  \
      && ipv6_addr_equal(&((A)->addr.ipv6),&((B)->addr.ipv6))
 #endif
-#else /* WITH_CONTIKI */
+#elif defined(WITH_NANOANQ)
+#define _dtls_address_equals_impl(A,B)              \
+  ((A)->size == (B)->size                           \
+   && (A)->port == (B)->port                        \
+   && ip_addr_cmp(&((A)->addr),&((B)->addr))        \
+   && (A)->ifindex == (B)->ifindex)
+#else /* ! WITH_CONTIKI && ! WITH_NANOANQ */
 
-static inline int 
+static inline int
 _dtls_address_equals_impl(const session_t *a,
 			  const session_t *b) {
   if (a->ifindex != b->ifindex ||
       a->size != b->size || a->addr.sa.sa_family != b->addr.sa.sa_family)
     return 0;
-  
+
   /* need to compare only relevant parts of sockaddr_in6 */
  switch (a->addr.sa.sa_family) {
  case AF_INET:
-   return 
-     a->addr.sin.sin_port == b->addr.sin.sin_port && 
-     memcmp(&a->addr.sin.sin_addr, &b->addr.sin.sin_addr, 
+   return
+     a->addr.sin.sin_port == b->addr.sin.sin_port &&
+     memcmp(&a->addr.sin.sin_addr, &b->addr.sin.sin_addr,
 	    sizeof(struct in_addr)) == 0;
  case AF_INET6:
-   return a->addr.sin6.sin6_port == b->addr.sin6.sin6_port && 
-     memcmp(&a->addr.sin6.sin6_addr, &b->addr.sin6.sin6_addr, 
+   return a->addr.sin6.sin6_port == b->addr.sin6.sin6_port &&
+     memcmp(&a->addr.sin6.sin6_addr, &b->addr.sin6.sin6_addr,
 	    sizeof(struct in6_addr)) == 0;
  default: /* fall through and signal error */
    ;
@@ -98,7 +104,7 @@ dtls_session_init(session_t *sess) {
  * for sessions and peers and store a pointer to a session in the peer
  * struct.
  */
-#if !(defined (WITH_CONTIKI)) && !(defined (RIOT_VERSION))
+#if !(defined (WITH_CONTIKI)) && !(defined (RIOT_VERSION)) && !(defined (WITH_NANOANQ))
 session_t*
 dtls_new_session(struct sockaddr *addr, socklen_t addrlen) {
   session_t *sess;
@@ -127,7 +133,7 @@ dtls_session_addr(session_t *sess, socklen_t *addrlen) {
   *addrlen = sess->size;
   return &sess->addr.sa;
 }
-#endif /* !(defined (WITH_CONTIKI)) && !(defined (RIOT_VERSION)) */
+#endif /* !(defined (WITH_CONTIKI)) && !(defined (RIOT_VERSION)) && !(defined (WITH_NANOANQ)) */
 
 int
 dtls_session_equals(const session_t *a, const session_t *b) {

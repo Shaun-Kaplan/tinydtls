@@ -6,7 +6,7 @@
  * and Eclipse Distribution License v. 1.0 which accompanies this distribution.
  *
  * The Eclipse Public License is available at http://www.eclipse.org/legal/epl-v10.html
- * and the Eclipse Distribution License is available at 
+ * and the Eclipse Distribution License is available at
  * http://www.eclipse.org/org/documents/edl-v10.php.
  *
  * Contributors:
@@ -50,7 +50,22 @@ typedef struct {
   } addr;                   /**< session IP address and port */
   int ifindex;              /**< network interface index */
 } session_t;
-#else /* ! WITH_CONTIKI && ! WITH_RIOT_SOCK */
+#elif defined(WITH_NANOANQ)
+#include "config.h"
+#include "FreeRTOS.h"
+#include "semphr.h"
+#include "lwip/ip_addr.h"
+/**
+ * @brief The structure for sockets on NANOANQ.
+ */
+typedef struct {
+    unsigned char size;         /**< size of session_t::addr */
+    struct ip_addr addr;        /**< @brief The IP address of the location server. */
+    unsigned short port;        /**< @brief Port number of the location server. */
+    int ifindex;                /**< network interface index */
+    struct netconn *conn;       /**< @brief UDP connection structure. */
+} session_t;
+#else /* ! WITH_CONTIKI && ! WITH_RIOT_SOCK && ! WITH_NANOANQ */
 
 #ifdef WITH_ZEPHYR
 #include <zephyr.h>
@@ -82,16 +97,16 @@ typedef struct {
 } session_t;
 #endif /* ! WITH_CONTIKI && ! WITH_RIOT_SOCK */
 
-/** 
+/**
  * Resets the given session_t object @p sess to its default
  * values.  In particular, the member rlen must be initialized to the
  * available size for storing addresses.
- * 
+ *
  * @param sess The session_t object to initialize.
  */
 void dtls_session_init(session_t *sess);
 
-#if !(defined (WITH_CONTIKI)) && !(defined (RIOT_VERSION))
+#if !(defined (WITH_CONTIKI)) && !(defined (RIOT_VERSION)) && !(defined (WITH_NANOANQ))
 /**
  * Creates a new ::session_t for the given address.
  *
@@ -118,7 +133,7 @@ void dtls_free_session(session_t *sess);
  * @return The address or @c NULL if @p sess was @c NULL.
  */
 struct sockaddr* dtls_session_addr(session_t *sess, socklen_t *addrlen);
-#endif /* !(defined (WITH_CONTIKI)) && !(defined (RIOT_VERSION)) */
+#endif /* !(defined (WITH_CONTIKI)) && !(defined (RIOT_VERSION)) && !(defined (WITH_NANOANQ)) */
 
 /**
  * Compares the given session objects. This function returns @c 0

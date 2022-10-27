@@ -6,7 +6,7 @@
  * and Eclipse Distribution License v. 1.0 which accompanies this distribution.
  *
  * The Eclipse Public License is available at http://www.eclipse.org/legal/epl-v10.html
- * and the Eclipse Distribution License is available at 
+ * and the Eclipse Distribution License is available at
  * http://www.eclipse.org/org/documents/edl-v10.php.
  *
  * Contributors:
@@ -29,6 +29,9 @@
 
 #elif defined (WITH_ZEPHYR)
 #include "platform-specific/dtls_prng_zephyr.c"
+
+#elif defined (WITH_NANOANQ)
+#include "platform-specific/dtls_prng_nanoanq.c"
 
 #elif defined (WITH_POSIX)
 #include "platform-specific/dtls_prng_posix.c"

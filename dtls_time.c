@@ -6,7 +6,7 @@
  * and Eclipse Distribution License v. 1.0 which accompanies this distribution.
  *
  * The Eclipse Public License is available at http://www.eclipse.org/legal/epl-v10.html
- * and the Eclipse Distribution License is available at 
+ * and the Eclipse Distribution License is available at
  * http://www.eclipse.org/org/documents/edl-v10.php.
  *
  * Contributors:
@@ -53,6 +53,22 @@ dtls_ticks(dtls_tick_t *t) {
 
 #endif /* RIOT_VERSION */
 
+#ifdef WITH_NANOANQ
+
+clock_time_t dtls_clock_offset;
+
+void
+dtls_clock_init(void) {
+  dtls_clock_offset = RTC_Uptime();
+}
+
+void
+dtls_ticks(dtls_tick_t *t) {
+  *t = RTC_Uptime() - dtls_clock_offset;
+}
+
+#endif /* WITH_NANOANQ */
+
 #ifdef WITH_ZEPHYR
 
 void
@@ -74,8 +90,8 @@ dtls_clock_init(void) {
   dtls_clock_offset = time(NULL);
 #else
 #  ifdef __GNUC__
-  /* Issue a warning when using gcc. Other prepropressors do 
-   *  not seem to have a similar feature. */ 
+  /* Issue a warning when using gcc. Other prepropressors do
+   *  not seem to have a similar feature. */
 #   warning "cannot initialize clock"
 #  endif
   dtls_clock_offset = 0;
@@ -86,7 +102,7 @@ void dtls_ticks(dtls_tick_t *t) {
 #ifdef HAVE_SYS_TIME_H
   struct timeval tv;
   gettimeofday(&tv, NULL);
-  *t = (tv.tv_sec - dtls_clock_offset) * DTLS_TICKS_PER_SECOND 
+  *t = (tv.tv_sec - dtls_clock_offset) * DTLS_TICKS_PER_SECOND
     + (tv.tv_usec * DTLS_TICKS_PER_SECOND / 1000000);
 #else
 #error "clock not implemented"
