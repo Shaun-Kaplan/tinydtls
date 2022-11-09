@@ -191,16 +191,22 @@ static const unsigned char cert_asn1_header[] = {
 
 #ifdef WITH_NANOANQ
 
+static void nanoanq_dtls_retransmit(xTimerHandle xTimer);
+
+static dtls_context_t *p_context;
+
 static inline dtls_context_t *malloc_context(void)
 {
     dtls_info("%s %u\n", __func__, sizeof(dtls_context_t));
-  return (dtls_context_t *)pvPortMalloc(sizeof(dtls_context_t));
+    p_context = (dtls_context_t *)pvPortMalloc(sizeof(dtls_context_t));
+    return p_context;
 }
 
 static inline void free_context(dtls_context_t *context)
 {
     dtls_info("%s\n", __func__);
-  vPortFree(context);
+    xTimerDelete(context->retransmit_timer, XBLOCK_TIME);
+    vPortFree(context);
 }
 
 #endif /* WITH_NANOANQ */
@@ -1845,6 +1851,10 @@ dtls_send_multi(dtls_context_t *ctx, dtls_peer_t *peer,
         PROCESS_CONTEXT_BEGIN(&dtls_retransmit_process);
         etimer_set(&ctx->retransmit_timer, n->timeout);
         PROCESS_CONTEXT_END(&dtls_retransmit_process);
+#elif (defined(WITH_NANOANQ))
+      } else {
+        xTimerChangePeriod(ctx->retransmit_timer, n->timeout / (portTICK_RATE_MS*30), XBLOCK_TIME);
+        dtls_debug("xTimerChangePeriod\n");
 #else /* WITH_CONTIKI */
         dtls_debug("copied to sendqueue\n");
 #endif /* WITH_CONTIKI */
@@ -1854,6 +1864,9 @@ dtls_send_multi(dtls_context_t *ctx, dtls_peer_t *peer,
     }
   }
 
+#ifdef WITH_NANOANQ
+  peer->retransmission = false;
+#endif
   /* FIXME: copy to peer's sendqueue (after fragmentation if
    * necessary) and initialize retransmit timer */
   res = CALL(ctx, write, session, sendbuf, len);
@@ -1903,6 +1916,9 @@ dtls_send_alert(dtls_context_t *ctx, dtls_peer_t *peer, dtls_alert_level_t level
       PROCESS_CONTEXT_BEGIN(&dtls_retransmit_process);
       etimer_set(&ctx->retransmit_timer, n->timeout);
       PROCESS_CONTEXT_END(&dtls_retransmit_process);
+#elif (defined(WITH_NANOANQ))
+        dtls_debug("%s n->timeout %08lx%08lx portTICK_RATE_MS %lu %lu\n", __func__, (uint32_t)(n->timeout >> 32), (uint32_t)n->timeout, portTICK_RATE_MS, configTICK_RATE_HZ);
+        xTimerChangePeriod(ctx->retransmit_timer, n->timeout / (portTICK_RATE_MS*30), XBLOCK_TIME);
 #else /* WITH_CONTIKI */
       dtls_debug("alert copied to retransmit buffer\n");
 #endif /* WITH_CONTIKI */
@@ -3538,6 +3554,9 @@ dtls_renegotiate(dtls_context_t *ctx, const session_t *dst)
   peer->optional_handshake_message = DTLS_HT_NO_OPTIONAL_MESSAGE;
 
   if (peer->role == DTLS_CLIENT) {
+#ifdef WITH_NANOANQ
+    peer->next_state = DTLS_STATE_CLIENTHELLO;
+#endif
     /* send ClientHello with empty Cookie */
     err = dtls_send_client_hello(ctx, peer, NULL, 0);
     if (err < 0)
@@ -3603,8 +3622,18 @@ handle_handshake_msg(dtls_context_t *ctx, dtls_peer_t *peer, uint8 *data, size_t
 
   int err = 0;
   const dtls_peer_type role = peer->role;
+#ifndef WITH_NANOANQ
   const dtls_state_t state = peer->state;
+#else /* WITH_NANOANQ */
+  dtls_state_t state = peer->state;
 
+  dtls_debug("%s retransmission %d state %d next_state %d\n", __func__, peer->retransmission,
+          peer->state, peer->next_state);
+  if (peer->retransmission) {
+      peer->state = peer->next_state;
+      state = peer->next_state;
+  }
+#endif /* WITH_NANOANQ */
   /* This will clear the retransmission buffer if we get an expected
    * handshake message. We have to make sure that no handshake message
    * should get expected when we still should retransmit something, when
@@ -3882,6 +3911,11 @@ handle_handshake_msg(dtls_context_t *ctx, dtls_peer_t *peer, uint8 *data, size_t
       peer->handshake_params->hs_state.mseq_s = 0;
     }
 
+#ifdef WITH_NANOANQ
+    peer->next_state = DTLS_STATE_CLIENTHELLO;
+    /* TODO? peer->optional_handshake_message = DTLS_HT_NO_OPTIONAL_MESSAGE
+     * Shouldn't be needed. This is server state and not client state. */
+#endif
     /* send ClientHello with empty Cookie */
     err = dtls_send_client_hello(ctx, peer, NULL, 0);
     if (err < 0) {
@@ -4597,6 +4631,10 @@ dtls_new_context(void *app_data) {
   etimer_set(&c->retransmit_timer, 0xFFFF);
   PROCESS_CONTEXT_END(&coap_retransmit_process);
 #endif /* WITH_CONTIKI */
+#ifdef WITH_NANOANQ
+  c->retransmit_timer = xTimerCreate((const signed char*)"dtls_retx", 0xffff,
+          pdFALSE, NULL, &nanoanq_dtls_retransmit);
+#endif
 
   if (dtls_prng(c->cookie_secret, DTLS_COOKIE_SECRET_LENGTH))
     c->cookie_secret_age = now;
@@ -4668,6 +4706,9 @@ dtls_connect_peer(dtls_context_t *ctx, dtls_peer_t *peer) {
 
   peer->handshake_params->hs_state.mseq_r = 0;
   peer->handshake_params->hs_state.mseq_s = 0;
+#ifdef WITH_NANOANQ
+  peer->next_state = DTLS_STATE_CLIENTHELLO;
+#endif
   res = dtls_send_client_hello(ctx, peer, NULL, 0);
   if (res < 0)
     dtls_warn("cannot send ClientHello\n");
@@ -4759,6 +4800,10 @@ dtls_retransmit(dtls_context_t *context, netq_t *node) {
       dtls_debug_hexdump("retransmit header", sendbuf, sizeof(dtls_record_header_t));
       dtls_debug_hexdump("retransmit unencrypted", node->data, node->length);
 
+#ifdef WITH_NANOANQ
+      node->peer->retransmission = true;
+      dtls_debug("%s node->peer->retransmission %d\n", __func__, node->peer->retransmission);
+#endif
       (void)CALL(context, write, &node->peer->session, sendbuf, len);
 return_unlock:
 #ifdef DTLS_CONSTRAINED_STACK
@@ -4774,6 +4819,11 @@ return_unlock:
 
   /* And finally delete the node */
   netq_node_free(node);
+#ifdef WITH_NANOANQ
+      /* Signal max retransmissions exceeded. Using CLOSE_NOTIFY for convenience. */
+      /* node->peer does not exist here, session is set to NULL */
+      CALL(context, event, NULL, 1, DTLS_ALERT_CLOSE_NOTIFY);
+#endif
 }
 
 static void
@@ -4783,6 +4833,10 @@ dtls_stop_retransmission(dtls_context_t *context, dtls_peer_t *peer) {
 
   while (node) {
     if (dtls_session_equals(&node->peer->session, &peer->session)) {
+#ifdef WITH_NANOANQ
+      node->peer->retransmission = false;
+      dtls_debug("%s node->peer->retransmission %d\n", __func__, node->peer->retransmission);
+#endif
       netq_t *tmp = node;
       node = netq_next(node);
       netq_remove(&context->sendqueue, tmp);
@@ -4810,6 +4864,29 @@ dtls_check_retransmit(dtls_context_t *context, clock_time_t *next) {
   }
 }
 
+#ifdef WITH_NANOANQ
+static void nanoanq_dtls_retransmit(xTimerHandle xTimer)
+{
+  dtls_tick_t now;
+  netq_t *node = netq_head(&p_context->sendqueue);
+  dtls_debug("%s\n", __func__);
+
+  dtls_ticks(&now);
+  /* comparison considering 32bit overflow */
+  if (node && DTLS_IS_BEFORE_TIME(node->t, now)) {
+    netq_pop_first(&p_context->sendqueue);
+    dtls_retransmit(p_context, node);
+    node = netq_head(&p_context->sendqueue);
+  }
+
+  if (node) {
+    xTimerChangePeriod(xTimer, node->t <= now ? 1 : (node->t - now) / (portTICK_RATE_MS*30), XBLOCK_TIME);
+  } else {
+      xTimerStop(xTimer, XBLOCK_TIME);
+  }
+
+}
+#endif
 #ifdef WITH_CONTIKI
 /*---------------------------------------------------------------------------*/
 /* message retransmission */

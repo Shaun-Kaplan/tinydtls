@@ -6,7 +6,7 @@
  * and Eclipse Distribution License v. 1.0 which accompanies this distribution.
  *
  * The Eclipse Public License is available at http://www.eclipse.org/legal/epl-v10.html
- * and the Eclipse Distribution License is available at 
+ * and the Eclipse Distribution License is available at
  * http://www.eclipse.org/org/documents/edl-v10.php.
  *
  * Contributors:
@@ -25,6 +25,10 @@
 
 #include <sys/types.h>
 
+#ifdef WITH_NANOANQ
+#include <stdbool.h>
+#endif
+
 #include "tinydtls.h"
 #include "global.h"
 #include "session.h"
@@ -38,7 +42,7 @@
 
 typedef enum { DTLS_CLIENT=0, DTLS_SERVER } dtls_peer_type;
 
-/** 
+/**
  * Holds security parameters, local state and the transport address
  * for each peer. */
 typedef struct dtls_peer_t {
@@ -56,6 +60,10 @@ typedef struct dtls_peer_t {
 
   dtls_security_parameters_t *security_params[2];
   dtls_handshake_parameters_t *handshake_params;
+#ifdef WITH_NANOANQ
+  dtls_state_t next_state;  /**< Possible next state after a retransmitted packet */
+  bool retransmission;      /**< Retransmission flag */
+#endif
 } dtls_peer_t;
 
 /**

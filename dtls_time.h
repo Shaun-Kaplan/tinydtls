@@ -65,6 +65,7 @@ typedef int64_t clock_time_t;
 
 #elif defined(WITH_NANOANQ)
 
+#include "timers.h"
 #include "rtc.h"
 
 #define time(x) RTC_Uptime()
